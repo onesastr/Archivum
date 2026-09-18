@@ -1,45 +1,207 @@
 # Archivum
 
-Archivum organizes files into date-based folders using each file's modification date or filesystem creation/change date.
+Archivum organizes files into date-based folders using one of three date sources:
+
+* **Modified** — filesystem modification date
+* **Created** — filesystem creation date when available, with a platform-dependent fallback
+* **EXIF** — camera capture date from `DateTimeOriginal`
+
+Archivum is designed with photography workflows in mind, including organizing RAW and JPEG files from cameras.
 
 ## Requirements
 
-- Python 3.9 or newer
-- No third-party packages required
+* Python 3.9 or newer
+* [ExifRead](https://pypi.org/project/ExifRead/) for EXIF date support
+
+## Installation
+
+Because modern Python installations may use an externally managed environment, Archivum recommends using a virtual environment.
+
+From the Archivum project folder:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install exifread
+```
+
+The virtual environment can be added to `.gitignore`:
+
+```text
+.venv/
+```
+
+To leave the virtual environment:
+
+```bash
+deactivate
+```
+
+When returning to the project, activate it again:
+
+```bash
+source .venv/bin/activate
+```
 
 ## Usage
 
-Preview the changes before moving anything:
+### Preview changes
+
+Use `--dry-run` to see what Archivum would do without moving any files:
 
 ```bash
 python archivum.py "/path/to/folder" --dry-run
 ```
 
-Organize files by modification date:
+### Organize by modification date
+
+This is the default mode:
 
 ```bash
 python archivum.py "/path/to/folder"
 ```
 
-Use filesystem creation/change date:
+Or explicitly:
+
+```bash
+python archivum.py "/path/to/folder" --mode modified
+```
+
+### Organize by filesystem creation date
 
 ```bash
 python archivum.py "/path/to/folder" --mode created
 ```
 
-Include files within subdirectories:
+### Organize by camera EXIF date
+
+Use the camera's `DateTimeOriginal` EXIF metadata:
+
+```bash
+python archivum.py "/path/to/folder" --mode exif
+```
+
+If a file does not contain a usable EXIF `DateTimeOriginal` value, Archivum skips that file and reports it.
+
+### Include subdirectories
+
+By default, Archivum only processes files directly inside the specified folder.
+
+Use `--recursive` to include files in subdirectories:
 
 ```bash
 python archivum.py "/path/to/folder" --recursive
 ```
 
+Options can be combined:
+
+```bash
+python archivum.py "/path/to/folder" --mode exif --recursive --dry-run
+```
+
+## Date Modes
+
+Archivum supports three date sources:
+
+| Mode       | Date source                   | Description                                                        |
+| ---------- | ----------------------------- | ------------------------------------------------------------------ |
+| `modified` | `st_mtime`                    | Filesystem modification date                                       |
+| `created`  | `st_birthtime` when available | Filesystem creation/birth date, with a platform-dependent fallback |
+| `exif`     | `EXIF DateTimeOriginal`       | Date and time the camera recorded the photograph                   |
+
+### Modified
+
+The default mode uses the filesystem modification timestamp.
+
+```bash
+python archivum.py "/path/to/folder" --mode modified
+```
+
+### Created
+
+The `created` mode uses the filesystem's creation/birth timestamp when Python's platform provides one.
+
+On macOS, Archivum uses `st_birthtime` when available.
+
+On systems where `st_birthtime` is unavailable, Archivum falls back to `st_ctime`. On Linux, `st_ctime` represents filesystem metadata change time rather than true file creation time.
+
+```bash
+python archivum.py "/path/to/folder" --mode created
+```
+
+### EXIF
+
+The `exif` mode reads the camera's `DateTimeOriginal` metadata.
+
+This is particularly useful for photographs because it uses the date recorded by the camera rather than the date the file was copied, edited, or downloaded.
+
+```bash
+python archivum.py "/path/to/folder" --mode exif
+```
+
+Files without a usable `DateTimeOriginal` value are skipped rather than assigned a potentially incorrect date.
+
+## Output Structure
+
+Files are moved into folders named:
+
+```text
+YYYY_MM_DD
+```
+
+For example:
+
+```text
+Photos/
+├── 2026_09_15/
+│   ├── IMG_1234.JPG
+│   └── IMG_1234.CR3
+├── 2026_09_16/
+│   ├── IMG_1235.JPG
+│   └── IMG_1235.CR3
+└── 2026_09_17/
+    └── IMG_1236.CR3
+```
+
 ## Behavior
 
-- Files move into folders named `YYYY_MM_DD`.
-- If a target filename already exists, Archivum preserves both files by adding ` (1)`, ` (2)`, and so on.
-- Files already in their appropriate date folder are skipped.
-- Always use `--dry-run` first when organizing an important folder.
+* Files are moved into folders based on the selected date mode.
+* Folders use the `YYYY_MM_DD` format.
+* If a target filename already exists, Archivum preserves both files by adding ` (1)`, ` (2)`, and so on.
+* Files already inside their appropriate date folder are skipped.
+* `--dry-run` previews changes without moving files.
+* Without `--recursive`, only files directly inside the specified folder are processed.
+* With `--recursive`, files inside subdirectories are also processed.
+* Files without a usable EXIF capture date are skipped when using `--mode exif`.
 
-## Note on creation dates
+## Recommended Workflow
 
-`--mode created` uses Python's `st_ctime`. On Windows this is generally the file creation time. On macOS and Linux, it can instead represent metadata-change time, depending on the filesystem and platform.
+When organizing an important folder, preview the changes first:
+
+```bash
+python archivum.py "/path/to/folder" --mode exif --dry-run
+```
+
+Review the output.
+
+If everything looks correct, run the command again without `--dry-run`:
+
+```bash
+python archivum.py "/path/to/folder" --mode exif
+```
+
+For a larger directory containing nested folders:
+
+```bash
+python archivum.py "/path/to/folder" --mode exif --recursive --dry-run
+```
+
+Then, after verifying the results:
+
+```bash
+python archivum.py "/path/to/folder" --mode exif --recursive
+```
+
+## License
+
+Add your preferred license here.
