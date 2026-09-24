@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Registry of automation tools exposed to the CLI and web UI.
 
 To add a new automated organization tool, define a run function in a module

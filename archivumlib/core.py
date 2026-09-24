@@ -1,12 +1,17 @@
-#!/usr/bin/env python3
 """Core archiving operations shared by the CLI and the web UI."""
 
+import logging
 import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 import exifread
+
+# exifread warns on stderr for every non-image file it reads (for example
+# "File format not recognized." for PNGs). This library is only used to read
+# date tags, so silence its logger to keep CLI output clean.
+logging.getLogger("exifread").setLevel(logging.CRITICAL + 1)
 
 
 DATE_FORMAT = "%Y_%m_%d"
@@ -210,7 +215,12 @@ def organize_folder(
 def organize_by_date(config: dict, dry_run: bool) -> dict:
     """Run the organize-by-date tool and return a JSON-safe result."""
 
-    folder = Path(config.get("folder", "")).expanduser()
+    raw_folder = config.get("folder", "")
+
+    if not isinstance(raw_folder, str) or not raw_folder.strip():
+        raise ValueError("A folder is required")
+
+    folder = Path(raw_folder).expanduser()
 
     if not folder.is_dir():
         raise ValueError(f"Folder does not exist: {folder}")

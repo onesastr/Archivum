@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import sys
 from pathlib import Path
 
 from archivumlib import core
@@ -84,12 +85,16 @@ def main():
 
     args = parser.parse_args()
 
-    organize_folder(
-        Path(args.folder),
-        mode=args.mode,
-        dry_run=args.dry_run,
-        recursive=args.recursive,
-    )
+    try:
+        organize_folder(
+            Path(args.folder),
+            mode=args.mode,
+            dry_run=args.dry_run,
+            recursive=args.recursive,
+        )
+    except ValueError as err:
+        print(f"Error: {err}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

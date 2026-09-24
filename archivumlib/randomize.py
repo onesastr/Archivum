@@ -1,13 +1,12 @@
-#!/usr/bin/env python3
 """Random renumbering of .jpg files, shared by the CLI and web UI."""
 
 import random
 from pathlib import Path
 
-from .core import MoveItem
 
-
-def randomize_plan(folder: Path, start: int = 1, seed: int | None = None):
+def randomize_plan(
+    folder: Path, start: int = 1, seed: int | None = None
+) -> tuple[Path, list[tuple[Path, Path]]]:
     """Build the shuffled (source -> destination) plan for a folder."""
 
     folder = folder.expanduser().resolve()
@@ -30,7 +29,7 @@ def randomize_plan(folder: Path, start: int = 1, seed: int | None = None):
     return folder, plan
 
 
-def _execute_plan(plan):
+def _execute_plan(plan: list[tuple[Path, Path]]) -> None:
     """Rename through temporary names so two files never collide."""
     temp_names = [
         f"__tmp_rename_{idx}__{src.suffix.lower()}"
@@ -45,35 +44,31 @@ def _execute_plan(plan):
 def randomize_jpegs(config: dict, dry_run: bool) -> dict:
     """Run the randomize tool and return a JSON-safe result."""
 
-    folder, plan = randomize_plan(
-        Path(config.get("folder", "")),
-        start=int(config.get("start", 1)),
-        seed=config.get("seed"),
-    )
+    folder = Path(config.get("folder", "")).expanduser()
 
     if not folder.is_dir():
         raise ValueError(f"Folder does not exist: {folder}")
 
-    entries = []
-
-    for src, dst in plan:
-        entries.append(
-            {
-                "source": str(src),
-                "destination": str(dst),
-                "status": "planned",
-                "reason": "",
-            }
-        )
+    folder, plan = randomize_plan(
+        folder,
+        start=int(config.get("start", 1)),
+        seed=config.get("seed"),
+    )
 
     if not dry_run and plan:
         _execute_plan(plan)
-        for entry in entries:
-            entry["status"] = "moved"
 
     return {
         "tool": "randomize-jpegs",
         "dry_run": dry_run,
         "folder": str(folder),
-        "entries": entries,
+        "entries": [
+            {
+                "source": str(src),
+                "destination": str(dst),
+                "status": "moved" if not dry_run else "planned",
+                "reason": "",
+            }
+            for src, dst in plan
+        ],
     }
