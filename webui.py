@@ -31,7 +31,10 @@ if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
 else:
     BASE_DIR = Path(__file__).resolve().parent
 
-STATIC_DIR = BASE_DIR / "webui" / "static"
+# Resolve symlinks (macOS maps /var -> /private/var, and _MEIPASS sits under
+# /var/folders) so the containment check in _serve_static compares like with
+# like.
+STATIC_DIR = (BASE_DIR / "webui" / "static").resolve()
 
 RELATED_MIME = {
     ".html": "text/html; charset=utf-8",
