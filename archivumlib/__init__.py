@@ -1,0 +1,1 @@
+"""Shared library used by the Archivum CLI and web UI."""

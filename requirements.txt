@@ -1,4 +1,1 @@
-## Requirements
-
-* Python 3.9 or newer
-* [ExifRead](https://pypi.org/project/ExifRead/) for EXIF date support
+exifread>=3.5
