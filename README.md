@@ -9,6 +9,24 @@ It currently ships with two automation tools:
 
 New tools can be added to `archivumlib/tools.py`; the web UI renders them automatically.
 
+## Download & run the app (no terminal needed)
+
+Finished, ready-to-run apps are published on the [Releases page](https://github.com/onesastr/Archivum/releases) under each version. No Python, no terminal, no setup required — download one file for your computer and double-click it.
+
+1. Open the Releases page and click the newest version on the left.
+2. In the **Assets** list, download the file for your computer:
+   - **Windows** → `Archivum-windows.exe`
+   - **macOS** → `Archivum-macos.zip`
+   - **Linux** → `Archivum-linux-x86_64`
+3. Open the app:
+   - **Windows**: double-click `Archivum-windows.exe`. If Windows shows a blue "Windows protected your PC" screen, click **More info**, then **Run anyway** — this happens because the app is not code-signed yet.
+   - **macOS**: double-click `Archivum-macos.zip` in your Downloads folder. It unpacks into an `Archivum` app. The first time, right-click the app and choose **Open**, then **Open** again — this is how macOS lets you run an app from an unidentified developer.
+   - **Linux**: download the file, then right-click it → **Properties** → **Permissions** → tick **Allow executing file as program**, close the window, and double-click it.
+
+After a few seconds your browser opens Archivum automatically — no terminal window appears. If port `8000` is already taken by another app, Archivum quietly picks the next free port. To stop it, just close the browser tab and quit the app (for example with Ctrl+C if you launched it from a terminal).
+
+Bundles are rebuilt for Windows, macOS, and Linux whenever a new version tag is pushed, via the workflow in `.github/workflows/build.yml`.
+
 ## Date sources
 
 * **Modified** — filesystem modification date

@@ -18,13 +18,19 @@ the paths you give it.
 import argparse
 import json
 import re
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from archivumlib import tools
 
-BASE_DIR = Path(__file__).resolve().parent
+if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+    # Frozen (PyInstaller) build: data files live in the _MEIPASS temp dir.
+    BASE_DIR = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+else:
+    BASE_DIR = Path(__file__).resolve().parent
+
 STATIC_DIR = BASE_DIR / "webui" / "static"
 
 RELATED_MIME = {
@@ -194,6 +200,24 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+def _start_server(host: str, port: int, attempts: int = 20):
+    """Bind the server, moving to a nearby port if the requested one is busy.
+
+    Returns the (server, port) pair actually bound so the caller can tell the
+    user / browser where to connect.
+    """
+    for candidate in range(port, port + attempts):
+        try:
+            return ThreadingHTTPServer((host, candidate), Handler), candidate
+        except OSError:
+            continue
+
+    raise SystemExit(
+        f"Could not bind to any port from {port} to {port + attempts - 1}. "
+        "Close other applications and try again."
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description="Archivum web UI")
     parser.add_argument("--host", default="127.0.0.1", help="Bind address (default: 127.0.0.1)")
@@ -201,11 +225,16 @@ def main():
     parser.add_argument("--no-browser", action="store_true", help="Do not open a browser")
     args = parser.parse_args()
 
-    server = ThreadingHTTPServer((args.host, args.port), Handler)
+    server, port = _start_server(args.host, args.port)
 
-    url = f"http://{args.host}:{args.port}"
+    if port != args.port:
+        print(f"Port {args.port} is already in use; using port {port} instead.")
+
+    url = f"http://{args.host}:{port}"
     print(f"Archivum UI running at {url}")
 
+    # The server socket is already bound and listening here, so the browser
+    # opens straight into a live page.
     if not args.no_browser:
         import webbrowser
         webbrowser.open(url)
