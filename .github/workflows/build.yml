@@ -45,11 +45,16 @@ jobs:
         if: runner.os == 'macOS'
         run: ditto -c -k --sequesterRsrc --keepParent dist/Archivum.app dist/Archivum-macos.zip
 
+      - name: Rename binary to its distribution filename
+        if: runner.os != 'macOS'
+        shell: bash
+        run: mv ${{ matrix.dist_file }} dist/${{ matrix.artifact }}
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: ${{ matrix.dist_file }}
+          path: dist/${{ matrix.artifact }}
           if-no-files-found: error
 
   release:
