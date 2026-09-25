@@ -1,7 +1,10 @@
-__pycache__/
-*.py[cod]
-*.egg-info/
-.venv/
-venv/
-.env
+node_modules/
+dist/
+out/
+*.log
 .DS_Store
+__pycache__/
+*.pyc
+build/
+htmlcov/
+.coverage
