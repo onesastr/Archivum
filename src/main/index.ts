@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { app, BrowserWindow, ipcMain } from "electron";
 
-import { buildPlan, applyPlan } from "./lib/core";
+import { buildPlan, applyPlan, groupFromMode } from "./lib/core";
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -27,8 +27,8 @@ ipcMain.handle("pick-folder", async (event): Promise<string | null> => {
   return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
 });
 
-ipcMain.handle("organize-dry-run", async (_e, folder: string): Promise<unknown> => {
-  return buildPlan(folder /* as const */, true);
+ipcMain.handle("organize-dry-run", async (_e, mode: string, folder: string): Promise<unknown> => {
+  return buildPlan(folder, true, groupFromMode(mode));
 });
 
 ipcMain.handle("organize-apply", async (e, res: unknown): Promise<unknown> => {

@@ -1,7 +1,7 @@
 /** Typed window.archivum — the preload contextBridge API. */
 export interface RendererApi {
   pickFolder(): Promise<string | null>;
-  organizeDryRun(folder: string): Promise<{
+  organizeDryRun(mode: string, folder: string): Promise<{
     folder: string;
     entries: Array<{ source: string; destination: string; note?: string; reason?: string; detail?: string }>;
     summary: Record<string, number>;

@@ -62,7 +62,7 @@ function uniqueName(destFolder: string, name: string, used: Set<string>): string
   return join(destFolder, out);
 }
 
-export async function buildPlan(folder: string, useExif: boolean): Promise<DryRun> {
+export async function buildPlan(folder: string, useExif: boolean, mode: GroupMode = "date"): Promise<DryRun> {
   const entries: PlanEntry[] = [];
   const used = new Set<string>();
   const seen = new Map<string, string>();
@@ -103,4 +103,15 @@ export async function applyPlan(plan: DryRun): Promise<{ ok: boolean; undo: { fr
     undo.push({ from: e.source, to: e.destination });
   }
   return { ok: true, undo };
+}
+
+export type GroupMode = "date" | "renumber" | "randomize" | "junk" | "dedupe";
+export function groupFromMode(mode: string): GroupMode {
+  switch (mode) {
+    case "renumber": return "renumber";
+    case "randomize": return "randomize";
+    case "junk": return "junk";
+    case "dedupe": return "dedupe";
+    default: return "date";
+  }
 }
