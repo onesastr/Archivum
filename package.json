@@ -14,7 +14,8 @@
     "typecheck:web": "tsc -p tsconfig.web.json --noEmit",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "test:core": "node --test out/archivum/*.test.cjs",
-    "analyze": "electron-vite build"
+    "analyze": "electron-vite build",
+    "postinstall": "node node_modules/electron/install.js"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
