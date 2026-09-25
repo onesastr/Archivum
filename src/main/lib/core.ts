@@ -8,7 +8,16 @@ import type { DryRun, FileEntry, PlanEntry, UndoRecord } from "../../shared/type
 const IMG_EXT = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".tif", ".tiff", ".dng", ".cr2", ".nef"]);
 const JUNK_RE = [/^\.DS_Store$/i, /^Thumbs\.db$/i, /^desktop\.ini$/i, /^\$~/i, /^~\$.*\./, /\.(tmp|part)$/i, /^\.archivum\./, /^~lock\./];
 
-export function isImage(name: string): boolean {
+
+export function pad4(n: number): string { return n.toString().padStart(4, "0"); }
+export function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}export function isImage(name: string): boolean {
   return IMG_EXT.has(extname(name).toLowerCase());
 }
 export function isJunk(name: string): boolean {
@@ -68,8 +77,39 @@ export async function buildPlan(folder: string, useExif: boolean, mode: GroupMod
   const seen = new Map<string, string>();
   let junk = 0;
   let dup = 0;
-  const files = (await fsP.readdir(folder)).filter((n) => !isJunk(n));
-  for (const name of files) {
+  let files = (await fsP.readdir(folder)).filter((n) => !isJunk(n));
+  if (mode === "junk") {
+    const all = await fsP.readdir(folder);
+    for (const name of all) {
+      const path = join(folder, name);
+      if (isJunk(name)) {
+        junk++;
+        entries.push({ source: path, destination: "", reason: "junk", detail: "non-image or junk file" });
+      }
+    }
+    return {
+      folder,
+      entries,
+      summary: { moved: 0, dup_hash: 0, junk, unsafe: 0 },
+    };
+  }
+  if (mode === "renumber" || mode === "randomize") {
+    const files = (await fsP.readdir(folder)).filter((n) => isImage(n));
+    if (mode === "randomize") files.sort(() => Math.random() - 0.5);
+    const entriesLocal: PlanEntry[] = [];
+    for (const [k, name] of files.entries()) {
+      const path = join(folder, name.name);
+      if (!isImage(name.name)) continue;
+      const ext = extname(name.name).toLowerCase() || ".jpg";
+      const dest = join(folder, `${pad4(k + 1)}${ext}`);
+      entriesLocal.push({ source: path, destination: dest, reason: "renumber", detail: `${mode} sequence ${k + 1}` });
+    }
+    return {
+      folder,
+      entries: entriesLocal,
+      summary: { moved: entriesLocal.length, dup_hash: 0, junk: 0, unsafe: 0 },
+    };
+  }  for (const name of files) {
     const path = join(folder, name);
     if (!isImage(name)) continue;
     const group = await dateForFile(path, name);
@@ -92,7 +132,6 @@ export async function buildPlan(folder: string, useExif: boolean, mode: GroupMod
   };
 }
 
-/** Apply the plan: mkdir target folders, rename each file, return a journal for undo. */
 export async function applyPlan(plan: DryRun): Promise<{ ok: boolean; undo: { from: string; to: string }[] }> {
   const undo: { from: string; to: string }[] = [];
   for (const e of plan.entries) {

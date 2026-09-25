@@ -1,270 +1,93 @@
 # Archivum
 
-Archivum is a small photo-archiving toolbox with both a command-line interface and a local web UI.
+Archivum is a local photo-archiving toolbox. It scans a folder of pictures and
+plans batch operations — organize by date, renumber, randomize order, clean
+junk, or dedupe — always as a **dry run first**, then lets you **apply** and
+**undo** at any time.
 
-It currently ships with two automation tools:
+The app ships as a desktop application for Windows, macOS, and Linux, built on
+Electron with a React + TypeScript interface (Tailwind-styled, no backend).
 
-* **Organize by date** — move files into date-based folders using one of three date sources
-* **Randomize JPEG order** — shuffle `.jpg` files and renumber them in sequence
+## Quick start (developers)
 
-New tools can be added to `archivumlib/tools.py`; the web UI renders them automatically.
+```bash
+npm install
+npm run dev          # launches the Electron app + renderer dev server
+```
 
-## Download & run the app (no terminal needed)
+For a packaged build:
 
-Finished, ready-to-run apps are published on the [Releases page](https://github.com/onesastr/Archivum/releases) under each version. No Python, no terminal, no setup required — download one file for your computer and double-click it.
+```bash
+npm run typecheck    # node + web typechecks must both pass
+npm run build
+```
 
-1. Open the Releases page and click the newest version on the left.
-2. In the **Assets** list, download the file for your computer:
-   - **Windows** → `Archivum-windows.exe`
-   - **macOS** → `Archivum-macos.zip`
-   - **Linux** → `Archivum-linux-x86_64`
-3. Open the app:
-   - **Windows**: double-click `Archivum-windows.exe`. If Windows shows a blue "Windows protected your PC" screen, click **More info**, then **Run anyway** — this happens because the app is not code-signed yet.
-   - **macOS**: double-click `Archivum-macos.zip` in your Downloads folder. It unpacks into an `Archivum` app. The first time, right-click the app and choose **Open**, then **Open** again — this is how macOS lets you run an app from an unidentified developer.
-   - **Linux**: download the file, then right-click it → **Properties** → **Permissions** → tick **Allow executing file as program**, close the window, and double-click it.
+The renderer communicates with the main process over a typed IPC bridge
+(`window.archivum`), injected by the preload script. The UI is mode-driven:
+pick a folder, choose a batch mode, dry-run to preview the plan, apply when it
+looks right, undo if you change your mind.
 
-After a few seconds your browser opens Archivum automatically — no terminal window appears. If port `8000` is already taken by another app, Archivum quietly picks the next free port. To stop it, just close the browser tab and quit the app (for example with Ctrl+C if you launched it from a terminal).
+## Batch modes
 
-Bundles are rebuilt for Windows, macOS, and Linux whenever a new version tag is pushed, via the workflow in `.github/workflows/build.yml`.
+| Mode       | What it does                                              |
+| ---------- | --------------------------------------------------------- |
+| **date**      | Move images into `YYYY_MM_DD` folders by capture date     |
+| **renumber**  | Renumber files in sequence (e.g. `0001.jpg`, `0002.jpg`)  |
+| **randomize** | Shuffle file order and renumber them                      |
+| **junk**      | Flag and clean non-image junk files                       |
+| **dedupe**    | Group duplicates by content hash, keeping the first       |
+
+Every mode runs as a dry run by default. The preview shows each planned
+move (`source → destination` plus a note) and a summary of what would happen.
+Nothing is written to disk until you press **Apply**, and **Undo** reverts the
+last applied plan.
 
 ## Date sources
 
-* **Modified** — filesystem modification date
-* **Created** — filesystem creation date when available, with a platform-dependent fallback
-* **EXIF** — camera capture date. Reads `DateTimeOriginal` first, then falls back to `DateTimeDigitized` and the IFD0 `DateTime`, since cameras and processing tools write the date into any of these. Resulting datetimes are parsed tolerantly (sub-second suffixes and other small irregularities are handled).
+When organizing by date (`date` mode), Archivum picks the capture date in this
+priority:
 
-This EXIF fallback behavior means files that carry only an `Image DateTime` entry (common with downloaded or converted images) are organized correctly instead of being skipped.
+1. **EXIF** — camera capture date (`DateTimeOriginal`, then `DateTimeDigitized`
+   and IFD0 `DateTime`).
+2. **Modified** — filesystem modification time (`st_mtime`).
+3. **Created** — filesystem creation/birth time when the platform provides one
+   (falls back to `st_ctime` on platforms without birthtime).
 
-## Requirements
+The EXIF fallback chain means files carrying only an `Image DateTime` entry
+(common with downloaded or converted images) are still organized correctly.
 
-* Python 3.9 or newer
-* [ExifRead](https://pypi.org/project/ExifRead/) for EXIF date support
+## Legacy Python CLIs
 
-## Installation
-
-Because modern Python installations may use an externally managed environment, Archivum recommends using a virtual environment.
-
-From the Archivum project folder:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-```
-
-The virtual environment can be added to `.gitignore`:
-
-```text
-.venv/
-```
-
-To leave the virtual environment:
+The first versions of Archivum were command-line Python utilities. They still
+exist in the repository for scripting use:
 
 ```bash
-deactivate
+python archivum.py "/path/to/folder" --dry-run          # organize by date (preview)
+python archivum.py "/path/to/folder" --mode exif        # organize by EXIF capture date
+python randomize-jpegs.py "/path/to/folder" --dry-run   # renumber/randomize JPEGs (preview)
+python webui.py --port 8000                             # old local web UI
 ```
 
-When returning to the project, activate it again:
+These require Python 3.9+ and `exifread` (`pip install -r requirements.txt`).
+New work happens in the Electron app; the CLIs are kept for compatibility.
 
-```bash
-source .venv/bin/activate
+## Development layout
+
+```
+src/
+  main/           Electron main process + core organizing logic
+  preload/        contextBridge: exposes window.archivum (typed IPC)
+  shared/         shared types (DryRun / plan entries / apply results)
+  renderer/       React UI (App.tsx), Tailwind-styled
+electron.vite.config.ts
+package.json
 ```
 
-## Web UI
-
-The web UI is the recommended way to drive the tools. It loads a list of available tools, lets you fill in a form for each, previews the changes (dry run), and only then applies them.
-
-Folder fields have a **Browse…** button that opens a file picker, so you can navigate the filesystem and select a folder instead of typing its path. The picker supports breadcrumb navigation, an up button, and a home shortcut. You can still type or paste a path directly if you prefer.
-
-```bash
-python webui.py
-```
-
-Open the printed URL (default `http://127.0.0.1:8000`).
-
-Options:
-
-```bash
-python webui.py --port 9000        # different port
-python webui.py --host 127.0.0.1   # bind address (default localhost)
-python webui.py --no-browser      # don't try to open a browser
-```
-
-The server is bound to `127.0.0.1` by default and is intended for local use only. It will move, rename, and create files at whatever paths you provide.
-
-### Adding a new tool
-
-Tools are registered in `archivumlib/tools.py`. A tool declares a JSON-safe `run(config, dry_run)` function and the form fields the UI should render. Because the UI renders every tool from this metadata, adding a new automation tool requires no front-end changes.
-
-## Usage
-
-### Preview changes
-
-Use `--dry-run` to see what Archivum would do without moving any files:
-
-```bash
-python archivum.py "/path/to/folder" --dry-run
-```
-
-### Organize by modification date
-
-This is the default mode:
-
-```bash
-python archivum.py "/path/to/folder"
-```
-
-Or explicitly:
-
-```bash
-python archivum.py "/path/to/folder" --mode modified
-```
-
-### Organize by filesystem creation date
-
-```bash
-python archivum.py "/path/to/folder" --mode created
-```
-
-### Organize by camera EXIF date
-
-Use the camera's EXIF capture date:
-
-```bash
-python archivum.py "/path/to/folder" --mode exif
-```
-
-If a file has no usable EXIF date, Archivum skips that file and reports it.
-
-### Include subdirectories
-
-By default, Archivum only processes files directly inside the specified folder.
-
-Use `--recursive` to include files in subdirectories:
-
-```bash
-python archivum.py "/path/to/folder" --recursive
-```
-
-Options can be combined:
-
-```bash
-python archivum.py "/path/to/folder" --mode exif --recursive --dry-run
-```
-
-### Randomize JPEG order
-
-Randomly renumber the `.jpg` files in a folder:
-
-```bash
-python randomize-jpegs.py "/path/to/folder"            # -> 1.jpg, 2.jpg, ...
-python randomize-jpegs.py "/path/to/folder" --start 10
-python randomize-jpegs.py "/path/to/folder" --seed 42  # reproducible order
-python randomize-jpegs.py "/path/to/folder" --dry-run  # preview only
-```
-
-## Date Modes
-
-Archivum supports three date sources:
-
-| Mode       | Date source                           | Description                                                                        |
-| ---------- | ------------------------------------- | ---------------------------------------------------------------------------------- |
-| `modified` | `st_mtime`                            | Filesystem modification date                                                       |
-| `created`  | `st_birthtime` when available         | Filesystem creation/birth date, with a platform-dependent fallback                 |
-| `exif`     | EXIF capture date                     | Camera-recorded date, with several EXIF date tags tried                             |
-
-### Modified
-
-The default mode uses the filesystem modification timestamp.
-
-```bash
-python archivum.py "/path/to/folder" --mode modified
-```
-
-### Created
-
-The `created` mode uses the filesystem's creation/birth timestamp when Python's platform provides one.
-
-On macOS, Archivum uses `st_birthtime` when available.
-
-On systems where `st_birthtime` is unavailable, Archivum falls back to `st_ctime`. On Linux, `st_ctime` represents filesystem metadata change time rather than true file creation time.
-
-```bash
-python archivum.py "/path/to/folder" --mode created
-```
-
-### EXIF
-
-The `exif` mode reads the camera's capture date from EXIF metadata. It prefers `EXIF DateTimeOriginal`, but also accepts `DateTimeDigitized` and the IFD0 `DateTime`, because many cameras and photo tools only write one of these.
-
-This is particularly useful for photographs because it uses the date recorded by the camera rather than the date the file was copied, edited, or downloaded.
-
-```bash
-python archivum.py "/path/to/folder" --mode exif
-```
-
-Files without a usable EXIF date are skipped rather than assigned a potentially incorrect date.
-
-## Output Structure
-
-Files are moved into folders named:
-
-```text
-YYYY_MM_DD
-```
-
-For example:
-
-```text
-Photos/
-├── 2026_09_15/
-│   ├── IMG_1234.JPG
-│   └── IMG_1234.CR3
-├── 2026_09_16/
-│   ├── IMG_1235.JPG
-│   └── IMG_1235.CR3
-└── 2026_09_17/
-    └── IMG_1236.CR3
-```
-
-## Behavior
-
-* Files are moved into folders based on the selected date mode.
-* Folders use the `YYYY_MM_DD` format.
-* If a target filename already exists, Archivum preserves both files by adding ` (1)`, ` (2)`, and so on.
-* Files already inside their appropriate date folder are skipped.
-* `--dry-run` previews changes without moving files.
-* Without `--recursive`, only files directly inside the specified folder are processed.
-* With `--recursive`, files inside subdirectories are also processed.
-* Files without a usable EXIF capture date are skipped when using `--mode exif`.
-
-## Recommended Workflow
-
-When organizing an important folder, preview the changes first:
-
-```bash
-python archivum.py "/path/to/folder" --mode exif --dry-run
-```
-
-Review the output.
-
-If everything looks correct, run the command again without `--dry-run`:
-
-```bash
-python archivum.py "/path/to/folder" --mode exif
-```
-
-For a larger directory containing nested folders:
-
-```bash
-python archivum.py "/path/to/folder" --mode exif --recursive --dry-run
-```
-
-Then, after verifying the results:
-
-```bash
-python archivum.py "/path/to/folder" --mode exif --recursive
-```
+Add a new batch mode by extending `src/main/lib/core.ts` (`buildPlan`) and the
+mode list in `src/renderer/src/App.tsx`. The IPC bridge in
+`src/main/index.ts` + `src/preload/index.ts` forwards the mode to the core,
+and the renderer's dry-run → apply → undo flow works for every mode without
+additional IPC channels.
 
 ## License
 
