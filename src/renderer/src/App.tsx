@@ -1,37 +1,30 @@
 import { useState } from "react";
 
+interface Row {
+  source: string;
+  destination: string;
+  note?: string;
+}
+
 export function App() {
-  const [folder, setFolder] = useState<string | null>(null);
-  const [rows, setRows] = useState<Array<{ source: string; destination: string; note: string }>>([]ersuseSyncExternalStore;
+  const [rows, setRows] = useState<Row[]>([]);
+
+  async function pick() {
+    const folder: string | null = await window.archivum.pickFolder();
+    if (!folder) return;
+    const result = await window.archivum.organizeDryRun(folder);
+    setRows(result.entries ?? []);
+  }
 
   return (
     <main className="mx-auto max-w-4xl px-6 py-10 text-slate-900">
       <h1 className="text-2xl font-semibold">Archivum</h1>
-      <p className="mt-1 text-sm text-slate-500">Organize photos into YYYY_MM_DD folders by date.</p>
-      <button
-        className="mt-8 rounded-md bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-700"
-        onClick={async () => {
-          const f = await window.archivum.pickFolder();
-          if (f) setFolder(f);
-        }}
-      >
-        Pick a folder…
+      <p className="mt-1 text-sm text-slate-500">
+        Organize photos into YYYY_MM_DD folders by date. Dry-run first, always.
+      </p>
+      <button className="mt-8 rounded-md bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-700" onClick={pick}>
+        Pick a folder...
       </button>
-      {folder ? (
-        <button
-          className="mt-4 ml-3 rounded-md border border-slate-300 px-4 py-2 text-sm"
-          onClick={async () => {
-            const res = (await window.archivum.organizeDryRun(folder)) as {
-              entries: Array<{ source: string; destination: string; note?: string }>;
-            };
-            setRows(res?.entries ?? []);
-          }}
-        >
-          Dry-run organize by date
-        </button>
-      ) : (
-        <p className="mt-8 text-xs text-slate-400">No folder selected yet.</p>
-      )}
       {rows.length > 0 ? (
         <table className="mt-6 w-full text-left text-sm">
           <thead>
@@ -46,12 +39,14 @@ export function App() {
               <tr key={r.source} className="border-b border-slate-100">
                 <td className="py-2 pr-4">{r.source}</td>
                 <td className="py-2 pr-4">{r.destination}</td>
-                <td className="py-2">{r.note}</td>
+                <td className="py-2">{r.note ?? "—"}</td>
               </tr>
             ))}
           </tbody>
         </table>
-      ) : null}
+      ) : (
+        <p className="mt-8 text-xs text-slate-400">No plan yet. Pick a folder and dry-run organize.</p>
+      )}
     </main>
   );
 }

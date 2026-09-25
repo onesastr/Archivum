@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { app, BrowserWindow, ipcMain } from "electron";
-import { buildOrganizePlan, applyPlan } from "./lib/core";
+
+import { buildPlan, applyPlan } from "./lib/core";
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -28,11 +29,11 @@ ipcMain.handle("pick-folder", async (): Promise<string | null> => {
 });
 
 ipcMain.handle("organize-dry-run", async (_e, folder: string): Promise<unknown> => {
-  return buildOrganizePlan(folder /* as const */, true);
+  return buildPlan(folder /* as const */, true);
 });
 
 ipcMain.handle("organize-apply", async (e, res: unknown): Promise<unknown> => {
-  return applyPlan(res as import("../../shared/types").DryRun);
+  return applyPlan(res as import("../shared/types").DryRun);
 });
 
 ipcMain.handle("undo", async (e, undoId: string | null): Promise<unknown> => {

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { promises as fsP } from "node:fs";
 import { createReadStream } from "node:fs";
-import { basename, extname, join } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 import exifr from "exifr";
 import type { DryRun, FileEntry, PlanEntry, UndoRecord } from "../../shared/types";
 
@@ -90,4 +90,17 @@ export async function buildPlan(folder: string, useExif: boolean): Promise<DryRu
     entries,
     summary: { moved: entries.filter((e) => e.reason === "date").length, dup_hash: dup, junk, unsafe: 0 },
   };
+}
+
+/** Apply the plan: mkdir target folders, rename each file, return a journal for undo. */
+export async function applyPlan(plan: DryRun): Promise<{ ok: boolean; undo: { from: string; to: string }[] }> {
+  const undo: { from: string; to: string }[] = [];
+  for (const e of plan.entries) {
+    if (!e.destination || e.destination === e.source) continue;
+    const dir = dirname(e.destination);
+    await fsP.mkdir(dir, { recursive: true });
+    await fsP.rename(e.source, e.destination);
+    undo.push({ from: e.source, to: e.destination });
+  }
+  return { ok: true, undo };
 }
