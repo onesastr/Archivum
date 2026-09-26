@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Thumbnails, previews and originals are served over the archivum: scheme
+      rather than file://, so img-src has to allow it. ws:// is only needed for
+      the Vite dev server's HMR socket and is inert once packaged.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self';
+               script-src 'self';
+               style-src 'self' 'unsafe-inline';
+               img-src 'self' archivum: data: blob:;
+               font-src 'self' data:;
+               connect-src 'self' ws://localhost:* http://localhost:* archivum:;
+               object-src 'none';
+               frame-src 'none';
+               base-uri 'none';
+               form-action 'none'"
+    />
+    <title>Archivum</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
