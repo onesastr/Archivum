@@ -57,7 +57,7 @@ export class AppServices {
     this.cache = new AssetCache(userDataPath)
     this.raw = new RawDecoder(() => app.getAppPath())
     this.render = new RenderService(this.cache, this.raw)
-    this.metadata = new MetadataService()
+    this.metadata = new MetadataService(undefined, undefined, this.raw)
     this.preview = new PreviewService(this.cache, this.render, this.metadata, this.raw)
     this.volumes = new VolumeService(db)
     this.scan = new ScanService(db, (progress) => {

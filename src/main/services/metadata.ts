@@ -2,6 +2,7 @@ import { open, stat, type FileHandle } from 'node:fs/promises'
 import exifr from 'exifr'
 import sharp from 'sharp'
 import type { CaptureSource, FileKind, FileMetadata, MetadataState, RawInfo } from '../../shared/contract'
+import type { RawDecoder } from './raw'
 import { classifyExtension, isRenderableImage } from '../../shared/formats'
 import { describeIccProfile } from './icc'
 import type { AssetIdentity } from './cache'
@@ -355,7 +356,8 @@ export class MetadataService {
 
   constructor(
     private readonly localZone: string = Intl.DateTimeFormat().resolvedOptions().timeZone,
-    private readonly recentLimit = 512
+    private readonly recentLimit = 512,
+    private readonly raw: RawDecoder | null = null
   ) {}
 
   async read(path: string, kind?: FileKind, statResult?: FileStat): Promise<FileMetadata> {
@@ -431,8 +433,15 @@ export class MetadataService {
     const iccBuffer = sharpFacts?.icc ?? (Buffer.isBuffer(exif.icc) ? (exif.icc as Buffer) : null)
     const icc = describeIccProfile(iccBuffer)
 
-    const width = sharpFacts?.width ?? num(first(exif.ExifImageWidth, exif.ImageWidth))
-    const height = sharpFacts?.height ?? num(first(exif.ExifImageHeight, exif.ImageHeight))
+    // A RAW's primary IFD describes its embedded preview, not the sensor: a
+    // 24MP NEF reports ImageWidth 160 here. LibRaw is the only authority on the
+    // real dimensions, so ask it first and keep EXIF as a fallback.
+    const rawInfo = kind === 'raw' ? ((await this.raw?.identify(path)) ?? null) : null
+
+    const width =
+      rawInfo?.outputWidth ?? sharpFacts?.width ?? num(first(exif.ExifImageWidth, exif.ImageWidth))
+    const height =
+      rawInfo?.outputHeight ?? sharpFacts?.height ?? num(first(exif.ExifImageHeight, exif.ImageHeight))
     const bitsPerSample = num(exif.BitsPerSample) ?? sharpFacts?.bitsPerSample ?? null
 
     const raw: RawInfo | null =
@@ -441,7 +450,7 @@ export class MetadataService {
             format: ext.toUpperCase(),
             width,
             height,
-            bitsPerSample,
+            bitsPerSample: rawInfo?.bitsPerSample ?? bitsPerSample,
             isRaw: true
           }
         : null

@@ -1,7 +1,6 @@
 import { execFile } from 'node:child_process'
-import { access, constants, mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { access, constants, readdir } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 import { promisify } from 'node:util'
 
 const run = promisify(execFile)
@@ -17,7 +16,6 @@ export interface LibRawBinary {
 }
 
 export interface RawAdjustments {
-  asShotNeutral?: boolean
   userMul?: [number, number, number]
   exposure?: number
   noAutoBright?: boolean
@@ -53,27 +51,42 @@ export class RawDecoder {
     if (this.binaries) return this.binaries
     const found = new Map<string, string>()
     const roots = this.resolveResourceRoot() ? [this.resolveResourceRoot()] : []
-    // A packaged build copies resources/libraw/<os>-<arch> to <app>/resources/libraw
-    // through extraResources, while a checkout keeps them at
-    // <project>/resources/libraw. Both are searched so `npm run dev` and a
-    // packaged AppImage resolve the binary the same way.
-    const dirs = [
+    // A checkout keeps one binary per platform under
+    // resources/libraw/<os>-<arch>/, while a packaged build flattens the matching
+    // directory into <app>/resources/libraw through extraResources. Both layouts
+    // are searched so `npm run dev` and a packaged AppImage resolve the same way.
+    const bases = [
       ...roots.map((root) => join(root, 'resources', 'libraw')),
       // Packaged: <app>/resources/libraw, which is process.resourcesPath itself.
       ...(process.resourcesPath ? [join(process.resourcesPath, 'libraw')] : []),
       join(process.cwd(), 'resources', 'libraw')
     ]
-    for (const dir of dirs) {
+    const target = `${process.platform}-${process.arch}`
+    for (const base of bases) {
       let entries: string[]
       try {
-        entries = await readdir(dir)
+        entries = await readdir(base)
       } catch {
         continue
       }
-      for (const entry of entries) {
-        if (!entry.startsWith('dcraw_emu')) continue
-        found.set('dcraw_emu', join(dir, entry))
+      // Prefer the binary built for this platform, then any other one, then a
+      // binary sitting directly in the base directory.
+      const subdirectories = entries
+        .filter((entry) => entry !== 'README.md')
+        .map((entry) => join(base, entry))
+      const ordered = [
+        ...subdirectories.filter((dir) => basename(dir) === target),
+        ...subdirectories.filter((dir) => basename(dir) !== target),
+        base
+      ]
+      for (const dir of ordered) {
+        if (found.size > 0) break
+        const candidates = dir === base ? entries : await readdir(dir).catch(() => [])
+        for (const entry of candidates) {
+          if (entry === 'dcraw_emu' || entry === 'raw-identify') found.set(entry, join(dir, entry))
+        }
       }
+      if (found.size > 0) break
     }
     this.binaries = found
     return found
@@ -107,16 +120,24 @@ export class RawDecoder {
     return this.available
   }
 
-  /** Reads dimensions and camera identity without demosaicing — cheap enough to run during indexing. */
+  /**
+   * Reads dimensions and camera identity without demosaicing, via raw-identify.
+   * dcraw_emu cannot do this: it has no identify mode and would instead demosaic
+   * the file and drop a full-size image next to the original.
+   */
   async identify(path: string): Promise<LibRawInfo | null> {
     let binary: string
     try {
-      binary = await this.dcrawEmu()
+      binary = await this.locate().then((binaries) => {
+        const found = binaries.get('raw-identify')
+        if (!found) throw new LibRawUnavailableError()
+        return found
+      })
     } catch {
       return null
     }
     try {
-      const { stdout } = await run(binary, ['-i', '-v', path], {
+      const { stdout } = await run(binary, ['-v', path], {
         encoding: 'utf8',
         maxBuffer: 8 * 1024 * 1024,
         timeout: 60_000
@@ -131,79 +152,48 @@ export class RawDecoder {
     }
   }
 
-  /** Full-size demosaic to TIFF. Slow (seconds) — used by the Edit pipeline, never by browsing. */
-  async decodeToTiff(
-    path: string,
-    adjustments: RawAdjustments = {}
-  ): Promise<{ buffer: Buffer; cleanup: () => Promise<void> }> {
+  /**
+   * Full-size demosaic to a TIFF buffer.
+   *
+   * `-T` selects TIFF and `-Z -` writes to stdout, so nothing is ever written
+   * next to the user's original: passing only `-Z <path>` produces a PPM wearing
+   * a .tiff extension, which nothing downstream can decode.
+   */
+  async decodeToTiff(path: string, adjustments: RawAdjustments = {}): Promise<Buffer> {
     const binary = await this.dcrawEmu()
-    const dir = await mkdtemp(join(tmpdir(), 'archivum-raw-'))
-    const output = join(dir, 'out.tiff')
-    const args = ['-Z', output]
+    const args = ['-T', '-Z', '-']
     if (adjustments.userMul) args.push('-u', adjustments.userMul.join(' '))
     if (adjustments.exposure !== undefined) args.push('-E', String(adjustments.exposure))
     if (adjustments.noAutoBright) args.push('-W')
     if (adjustments.halfSize) args.push('-h')
-    if (!adjustments.asShotNeutral) args.push('-m')
     args.push(path)
 
-    await run(binary, args, { maxBuffer: 8 * 1024 * 1024, timeout: 300_000 })
-    const buffer = await readFile(output)
-    return {
-      buffer,
-      cleanup: () => rm(dir, { recursive: true, force: true })
-    }
+    // A full-size 16-bit TIFF of a modern sensor runs to tens of megabytes.
+    const { stdout } = await run(binary, args, {
+      encoding: 'buffer',
+      maxBuffer: 512 * 1024 * 1024,
+      timeout: 300_000
+    })
+    return stdout
   }
 
-  /**
-   * Pulls the camera's own embedded JPEG preview, which is orders of magnitude
-   * faster than demosaicing and is what Lightroom/Capture One show in a grid.
-   */
-  async extractPreview(path: string): Promise<Buffer | null> {
-    let binary: string
-    try {
-      binary = await this.dcrawEmu()
-    } catch {
-      return null
-    }
-    const dir = await mkdtemp(join(tmpdir(), 'archivum-thumb-'))
-    const output = join(dir, 'preview.jpg')
-    try {
-      await run(binary, ['-e', '-Z', output, path], {
-        maxBuffer: 8 * 1024 * 1024,
-        timeout: 120_000
-      })
-      return await readFile(output)
-    } catch {
-      return null
-    } finally {
-      await rm(dir, { recursive: true, force: true })
-    }
-  }
-
-  /** Demosaiced pixels with no embedded preview available, as a TIFF buffer. */
+  /** Demosaiced pixels as a TIFF buffer, at half size when asked for thumbnails. */
   async decodeToBuffer(path: string, adjustments: RawAdjustments = {}): Promise<Buffer | null> {
     try {
-      const decoded = await this.decodeToTiff(path, adjustments)
-      try {
-        return decoded.buffer
-      } finally {
-        await decoded.cleanup()
-      }
+      return await this.decodeToTiff(path, adjustments)
     } catch {
       return null
     }
   }
 }
 
-const IDENTIFY_LABELS: Record<string, keyof Omit<LibRawInfo, 'isRaw' | 'colors'>> = {
-  'raw size': 'rawWidth',
-  'output size': 'outputWidth',
-  'bits/sample': 'bitsPerSample'
-}
-
+/**
+ * Parses `raw-identify -v` output. The labels below are the ones LibRaw actually
+ * prints; a guard on a "LibRaw" banner was removed because raw-identify never
+ * emits one, which made every parse fail and identify() return null.
+ */
 export function parseIdentify(stdout: string): LibRawInfo | null {
-  if (!stdout.includes('LibRaw')) return null
+  if (!stdout.includes('Normalized Make/Model')) return null
   const info: LibRawInfo = {
     rawWidth: null,
     rawHeight: null,
@@ -222,29 +212,43 @@ export function parseIdentify(stdout: string): LibRawInfo | null {
     const label = line.slice(0, colon).trim()
     const value = line.slice(colon + 1).trim()
 
-    const sizeMatch = /(\d+)\s*x\s*(\d+)/.exec(value)
-    if (label === 'Image size') {
-      info.rawWidth = sizeMatch ? Number(sizeMatch[1]) : null
-      info.rawHeight = sizeMatch ? Number(sizeMatch[2]) : null
-    } else if (label === 'Output size') {
-      info.outputWidth = sizeMatch ? Number(sizeMatch[1]) : null
-      info.outputHeight = sizeMatch ? Number(sizeMatch[2]) : null
-    } else if (label === 'Camera make') {
-      info.make = value || null
-    } else if (label === 'Camera model') {
-      info.model = value || null
-    } else if (label === 'Bits per sample') {
-      info.bitsPerSample = Number.parseInt(value, 10) || null
-    } else if (label === 'Camera colors') {
-      info.colors = Number.parseInt(value, 10) || 3
-    } else if (label in IDENTIFY_LABELS) {
-      const target = IDENTIFY_LABELS[label]
-      const parsed = Number.parseInt(value, 10)
-      if (Number.isFinite(parsed)) {
-        if (target === 'rawWidth') info.rawWidth = parsed
-        if (target === 'outputWidth') info.outputWidth = parsed
-        if (target === 'bitsPerSample') info.bitsPerSample = parsed
+    // "Camera: Canon EOS 40D ID: 0x80000190"
+    if (label === 'Camera') {
+      const camera = value.replace(/\s+ID:.*$/, '').trim()
+      if (camera) {
+        info.make = camera
+        info.model = camera
       }
+      continue
+    }
+    // "Normalized Make/Model: =Canon/EOS 40D= CamMaker ID: 8" splits the two
+    // halves on a slash, which is the authoritative make/model pair.
+    if (label === 'Normalized Make/Model') {
+      const normalized = /=\s*([^/]+)\/([^=]+?)=/.exec(value)
+      if (normalized) {
+        info.make = normalized[1].trim() || info.make
+        info.model = normalized[2].replace(/\s+CamMaker ID:.*$/, '').trim() || info.model
+      }
+      continue
+    }
+
+    const size = /(\d+)\s*x\s*(\d+)/.exec(value)
+    switch (label) {
+      case 'Full size':
+        info.rawWidth = size ? Number(size[1]) : null
+        info.rawHeight = size ? Number(size[2]) : null
+        break
+      case 'Image size':
+      case 'Output size':
+        info.outputWidth = size ? Number(size[1]) : null
+        info.outputHeight = size ? Number(size[2]) : null
+        break
+      case 'Raw colors':
+        info.colors = Number.parseInt(value, 10) || 3
+        break
+      case 'Bits per sample':
+        info.bitsPerSample = Number.parseInt(value, 10) || null
+        break
     }
   }
   return info

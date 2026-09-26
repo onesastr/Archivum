@@ -82,7 +82,8 @@
         "from": "resources/libraw/${os}-${arch}",
         "to": "libraw",
         "filter": [
-          "dcraw_emu*"
+          "dcraw_emu*",
+          "raw-identify*"
         ]
       }
     ],

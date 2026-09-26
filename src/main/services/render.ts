@@ -134,10 +134,15 @@ export class RenderService {
 
   private async build(request: RenderRequest): Promise<Sharp> {
     const ext = extensionOfPath(request.identity.path)
+    // LibRaw's dcraw_emu has no embedded-preview mode, and the tool that does
+    // writes the image into the user's own photo folder, so RAW is demosaiced
+    // here. Half size for thumbnails, where the extra detail is thrown away
+    // anyway; this is the main cost of browsing a RAW-heavy library today.
     const source =
       request.kind === 'raw'
-        ? ((await this.raw.extractPreview(request.identity.path)) ??
-          (await this.raw.decodeToBuffer(request.identity.path)))
+        ? await this.raw.decodeToBuffer(request.identity.path, {
+            halfSize: request.size != null
+          })
         : null
 
     let image =
